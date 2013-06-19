@@ -211,18 +211,6 @@ Capistrano::Configuration.instance(:must_exist).load do
   end
 
   # =========================================================================
-  # Check the remote file or directory exist
-  # =========================================================================
-  def remote_file_exists?(path)
-    results = []
-    invoke_command("if [ -e '#{path}' ]; then echo -n 'true'; fi") do |ch, stream, out|
-      results << (out == 'true')
-    end
-
-    results == [true]
-  end
-
-  # =========================================================================
   # These are the tasks that are available to help with deploying web apps,
   # and specifically, Rails applications. You can have cap give you a summary
   # of them with `cap -T'.
@@ -313,7 +301,7 @@ Capistrano::Configuration.instance(:must_exist).load do
       defaults to :checkout).
     DESC
     task :update_code, :except => { :no_release => true } do
-      on_rollback { run "rm -rf #{release_path}; true" }
+      on_rollback { run "chmod -R ug+w #{release_path}/sites && rm -rf #{release_path}; true" }
       strategy.deploy!
       finalize_update
       maintainance_keys
@@ -480,7 +468,7 @@ Capistrano::Configuration.instance(:must_exist).load do
       count = fetch(:keep_releases, 5).to_i
       if count < releases.length
         deploy.web.cleanup
-        run "#{try_sudo} ls -1dt #{releases_path}/* | tail -n +#{count + 1} | #{try_sudo} xargs rm -rf"
+        run "ls -1dt #{releases_path}/* | tail -n +#{count + 1} | #{try_sudo} xargs rm -rf"
       end
     end
 
@@ -581,32 +569,20 @@ Capistrano::Configuration.instance(:must_exist).load do
         dp_domains.each do |domain|
           domain_path = "#{release_path}/#{dp_sites}/#{domain}"
         
-          if remote_file_exists?("#{domain_path}/settings.#{stage}.php")
-            commands << "#{try_sudo} ln -nfs #{domain_path}/settings.#{stage}.php #{domain_path}/settings.php"
-          elsif remote_file_exists?("#{shared_path}/#{dp_sites}/#{domain}/settings.php")
-            commands << "#{try_sudo} ln -nfs #{shared_path}/#{dp_sites}/#{domain}/settings.php #{domain_path}/settings.php"
-          end
+          commands << "if [ -e '#{domain_path}/settings.#{stage}.php' ]; then #{try_sudo} ln -nfs #{domain_path}/settings.#{stage}.php #{domain_path}/settings.php; elif [ -e '#{shared_path}/#{dp_sites}/#{domain}/settings.php' ]; then #{try_sudo} ln -nfs #{shared_path}/#{dp_sites}/#{domain}/settings.php #{domain_path}/settings.php; fi"
+          commands << "if [ -e '#{domain_path}' ]; then #{try_sudo} ln -nfs #{shared_path}/#{dp_sites}/#{domain}/files #{domain_path}/files; fi"
 
-          if remote_file_exists?(domain_path)
-            commands << "#{try_sudo} ln -nfs #{shared_path}/#{dp_sites}/#{domain}/files #{domain_path}/files"
-          end
         end
 
         run commands.join('; ') if commands.any?
       end
 
       task :htaccess, :except => { :no_release => true } do
-        if remote_file_exists?("#{current_path}/htaccess-#{stage}")
-          run "#{try_sudo} mv #{current_path}/htaccess-#{stage} #{current_path}/.htaccess && #{try_sudo} rm -rf #{current_path}/htaccess-*"
-        elsif remote_file_exists?("#{current_path}/htaccess") 
-          run "#{try_sudo} mv #{current_path}/htaccess #{current_path}/.htaccess"
-        end
+        run "if [ -e '#{current_path}/htaccess-#{stage}' ]; then #{try_sudo} mv #{current_path}/htaccess-#{stage} #{current_path}/.htaccess && #{try_sudo} rm -rf #{current_path}/htaccess-*; elif [ -e '#{current_path}/htaccess' ]; then #{try_sudo} mv #{current_path}/htaccess #{current_path}/.htaccess; fi"
       end
   
       task :robots, :except => { :no_release => true } do
-        if remote_file_exists?("#{current_path}/robots-#{stage}.txt")
-          run "#{try_sudo} mv #{current_path}/robots-#{stage}.txt #{current_path}/robots.txt; #{try_sudo} rm -rf #{current_path}/robots-*.txt"
-        end
+        run "if [ -e '#{current_path}/robots-#{stage}.txt' ]; then #{try_sudo} mv #{current_path}/robots-#{stage}.txt #{current_path}/robots.txt && #{try_sudo} rm -rf #{current_path}/robots-*.txt; fi"
       end
   
       task :virtualhost, :except => { :no_release => true } do
@@ -628,7 +604,7 @@ Capistrano::Configuration.instance(:must_exist).load do
 
           default_shared_path = "#{shared_path}/#{dp_sites}/#{dp_default_domain}"
           default_current_path = "#{current_path}/#{dp_sites}/#{dp_default_domain}"
-          run "#{drush} si #{dp_site_profile} --root=#{current_path} --db-url=#{dp_site_db_url} --site-name=\"#{dp_site_name}\" --account-name=\"#{dp_site_admin_user}\" --account-pass=\"#{dp_site_admin_pass}\" -y && #{try_sudo} cp #{default_current_path}/settings.php #{default_shared_path}/settings.php && chmod 444 #{default_shared_path}/settings.php && #{try_sudo} chmod -R ug+w #{default_current_path}; #{try_sudo} rm -rf #{default_current_path}/settings.php #{default_current_path}/files"
+          run "if [ -e '#{default_shared_path}/settings.php' ]; then chmod ug+w #{default_shared_path}/settings.php && rm -rf #{default_shared_path}/settings.php; fi; #{drush} si #{dp_site_profile} --root=#{current_path} --db-url=#{dp_site_db_url} --site-name=\"#{dp_site_name}\" --account-name=\"#{dp_site_admin_user}\" --account-pass=\"#{dp_site_admin_pass}\" -y && #{try_sudo} cp #{default_current_path}/settings.php #{default_shared_path}/settings.php && #{try_sudo} chmod -R ug+w #{default_current_path}; #{try_sudo} rm -rf #{default_current_path}/settings.php #{default_current_path}/files"
         end
       end
 
@@ -754,23 +730,12 @@ Capistrano::Configuration.instance(:must_exist).load do
           dp_domains.each do |domain|
             latest_release_name = latest_release.split('/').last
 
-            files = "#{shared_path}/#{dp_released_files}/#{domain}/#{domain}_files_#{latest_release_name}.tar.bz2"      
-            if remote_file_exists?(files)
-              domain_shared_path = "#{shared_path}/#{dp_sites}/#{domain}"
+            files_dump = "#{shared_path}/#{dp_released_files}/#{domain}/#{domain}_files_#{latest_release_name}.tar.bz2"      
+            domain_shared_path = "#{shared_path}/#{dp_sites}/#{domain}"
+            commands << "if [ -e '#{files_dump}' ]; then rm -rf #{domain_shared_path}/files && tar xjf #{files_dump} -C #{domain_shared_path} && chmod -R g+w #{domain_shared_path}/files && rm -rf #{files_dump}; fi"
 
-              commands << "#{try_sudo} rm -rf #{domain_shared_path}/files"
-              commands << "#{try_sudo} tar xjf #{files} -C #{domain_shared_path}"
-              commands << "#{try_sudo} chmod -R g+w #{domain_shared_path}/files"
-              commands << "#{try_sudo} rm -rf #{files}"
-            end
-
-            db = "#{shared_path}/#{dp_released_db}/#{domain}/#{domain}_db_#{latest_release_name}.sql"
-            if remote_file_exists?("#{db}.gz")
-              commands << "#{try_sudo} gzip -d #{db}.gz"
-              commands << "#{drush} sql-drop --root=#{current_path} --uri=#{domain} -y"
-              commands << "#{drush} sqlq --file=#{db} --root=#{current_path} --uri=#{domain} -y"
-              commands << "#{try_sudo} rm -rf #{db}"
-            end
+            db_dump = "#{shared_path}/#{dp_released_db}/#{domain}/#{domain}_db_#{latest_release_name}.sql"
+            commands << "if [ -e '#{db_dump}.gz' ]; then gzip -d #{db_dump}.gz && #{drush} sql-drop --root=#{current_path} --uri=#{domain} -y && #{drush} sqlq --file=#{db_dump} --root=#{current_path} --uri=#{domain} -y && rm -rf #{db_dump}; fi"
           end
 
           run commands.join('; ') if commands.any?

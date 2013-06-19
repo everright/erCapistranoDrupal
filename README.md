@@ -174,5 +174,9 @@ System will be auto set the maintainance key to "site_readonly" when "Read Only 
 
 ## Changelog:
 
+### Version 0.1.1 - June 19 2013
+* Fix muiltiple servers deploy bug
+* Fix rollback permissions bug
+
 ### Version 0.1.0 - June 17 2013
 * First release
