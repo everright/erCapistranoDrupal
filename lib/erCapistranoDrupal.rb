@@ -89,11 +89,14 @@ Capistrano::Configuration.instance(:must_exist).load do
   # Drush tool
   _cset :drush, '/usr/bin/drush'
 
+  # Drupal version, 6 or 7
+  _cset :dp_version, 7
+
   # Drush site install info
   _cset :dp_site_install, false 
   _cset :dp_site_db_url, nil
-  _cset :dp_site_profile, 'standard'
-  _cset :dp_site_name, 'Drupal 7 Demo'
+  _cset(:dp_site_profile) { dp_version == 6 ? 'default' : 'standard' }
+  _cset(:dp_site_name) { dp_version == 6 ? 'Drupal 6 Demo' : 'Drupal 7 Demo' }
   _cset :dp_site_admin_user, 'admin'
   _cset :dp_site_admin_pass, 'admin'
 
@@ -101,7 +104,7 @@ Capistrano::Configuration.instance(:must_exist).load do
   # If "Read Only Mode" enabled, then set maintainance key to 'site_readonly'
   # else set maintainance key to 'maintenance_mode'
   # =========================================================================
-  _cset :dp_maintainance_keys, {'default' => 'maintenance_mode'}
+  _cset(:dp_maintainance_keys) { dp_version == 6 ? {'default' => 'site_offline'} : {'default' => 'maintenance_mode'}}
 
   # =========================================================================
   # These are helper methods that will be available to your recipes.
@@ -647,17 +650,19 @@ Capistrano::Configuration.instance(:must_exist).load do
           # Append hook_update migration
           commands << "#{drush} updb --root=#{current_path} --uri=#{domain} -y"
 
+          migration_commands = []
           # Append drush migration
-          commands << "#{try_sudo} touch #{drush_history}"
-          commands << "find #{current_path}/#{dp_migration}/#{domain} -type f -name *.drush | xargs ls -1v 2>/dev/null > #{drush_available}"
-          commands << "diff #{drush_available} #{drush_history} | awk \"/^</ {print \\$2}\" | while read f; do echo \"Migrating: $(basename $f)\"; egrep -v \"^$|^#|^[[:space:]]+$\" $f | while read line; do echo \"Running: drush $line\"; #{drush} $line --root=#{current_path} --uri=#{domain} -y; done; echo $f >> #{drush_history}; done"
-          commands << "#{try_sudo} rm -f #{drush_available}"
+          migration_commands << "#{try_sudo} touch #{drush_history}"
+          migration_commands << "find #{current_path}/#{dp_migration}/#{domain} -type f -name *.drush | xargs ls -1v 2>/dev/null > #{drush_available}"
+          migration_commands << "diff #{drush_available} #{drush_history} | awk \"/^</ {print \\$2}\" | while read f; do echo \"Migrating: $(basename $f)\"; egrep -v \"^$|^#|^[[:space:]]+$\" $f | while read line; do echo \"Running: drush $line\"; #{drush} $line --root=#{current_path} --uri=#{domain} -y; done; echo $f >> #{drush_history}; done"
+          migration_commands << "#{try_sudo} rm -f #{drush_available}"
 
           # Append sql migration
-          commands << "#{try_sudo} touch #{sql_history}"
-          commands << "find #{current_path}/#{dp_migration}/#{domain} -type f -name *.sql | xargs ls -1v 2>/dev/null > #{sql_available}"
-          commands << "diff #{sql_available} #{sql_history} | awk \"/^</ {print \\$2}\" | while read f; do echo \"Migrating $(basename $f)\"; #{drush} -r #{current_path} --uri=#{domain} sqlq --file=$f -y && echo $f >> #{sql_history}; done"
-          commands << "#{try_sudo} rm -f #{sql_available}"
+          migration_commands << "#{try_sudo} touch #{sql_history}"
+          migration_commands << "find #{current_path}/#{dp_migration}/#{domain} -type f -name *.sql | xargs ls -1v 2>/dev/null > #{sql_available}"
+          migration_commands << "diff #{sql_available} #{sql_history} | awk \"/^</ {print \\$2}\" | while read f; do echo \"Migrating $(basename $f)\"; #{drush} -r #{current_path} --uri=#{domain} sqlq --file=$f -y && echo $f >> #{sql_history}; done"
+          migration_commands << "#{try_sudo} rm -f #{sql_available}"
+          commands << "if [ -d #{current_path}/#{dp_migration}/#{domain} ]; then #{migration_commands.join('; ')}; fi"
         end
 
         run commands.join('; ') if commands.any?
@@ -690,9 +695,7 @@ Capistrano::Configuration.instance(:must_exist).load do
           commands = []
 
           dp_domains.each do |domain|
-            commands << "cd #{shared_path}/#{dp_sites}/#{domain}"
-            commands << "#{try_sudo} tar cjf #{shared_path}/#{dp_released_files}/#{domain}/#{domain}_files_#{release_name}.tar.bz2 files"
-            commands << "cd -"
+            commands << "cd #{shared_path}/#{dp_sites}/#{domain} && #{try_sudo} tar cjf #{shared_path}/#{dp_released_files}/#{domain}/#{domain}_files_#{release_name}.tar.bz2 files && cd -"
           end
 
           run commands.join('; ') if commands.any?

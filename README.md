@@ -10,7 +10,7 @@ erCapistranoDrupal is a drupal deploy file for Capistrano. Includes site install
 
 ## Versions
 * Drupal 7
-* Drupal 6 will be support on next version
+* Drupal 6
 
 ## Installation
 
@@ -52,7 +52,7 @@ You should then be able to proceed as you would usually, you may want to familia
 
 #### Drush File
     # create new user 'everright'
-    user-create everright --mail="everright@example.com" --password="123456"
+    user-create everright --mail=everright@example.com --password=123456
     # enable token module
     en token
 
@@ -78,6 +78,9 @@ You should then be able to proceed as you would usually, you may want to familia
 
 ### Drush tool
 * :drush, '/usr/bin/drush'
+
+### Drupal version, 6 or 7
+* :dp_version, 7
 
 ### Drush site install info
 If you want to install the drupal when first deploy, then you need to change these variables.
@@ -173,6 +176,11 @@ System will be auto set the maintainance key to "site_readonly" when "Read Only 
     set :dp_shared_files, true
 
 ## Changelog:
+
+### Version 0.1.2 - June 28 2013
+* Add drupal 6 support
+* Fix release files backup bug
+* Fix database migration bug on migration was not exist
 
 ### Version 0.1.1 - June 19 2013
 * Fix muiltiple servers deploy bug
